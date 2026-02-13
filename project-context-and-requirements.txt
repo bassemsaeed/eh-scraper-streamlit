@@ -1,0 +1,101 @@
+context: 
+
+    This transcript provides a wealth of specific technical details that were not in the short text description. The speaker (likely the project manager or lead) breaks down the **5 Core Tasks** in detail, explaining *why* they are needed.
+
+    Here is the **exact technical specification** derived from the transcript, tailored for you as a Software Engineer.
+
+    ---
+
+    ### **Project Context**
+
+    * **System:** A scraping pipeline (Python/Scrapy) feeding into a PostgreSQL database, which then publishes to a WooCommerce store called "Al Maddah" (المادة).
+    * **Current State:** The system works but has logic errors in pricing, inventory management, and categorization.
+    * **Target Sites:** ~7-10 supplier websites (e.g., "App Tools", "Electric House", etc.).
+
+    ---
+
+    ### **The 5 Required Tasks (Detailed)**
+
+    #### **1. Fix "Final Price" Scraping (00:00:00 - 00:01:50)**
+
+    * **The Bug:** The current spiders are scraping the *displayed* price. However, on some source sites, the displayed price is not the final price (it excludes VAT or discounts).
+    * **The Requirement:**
+    * Audit the existing spiders (about 7 of them).
+    * Update the selectors to grab the **Final Checkout Price** (post-tax, post-discount).
+    * *Note:* The speaker specifically mentions looking at "Electric House" as an example where the price is wrong ($8.8 vs something else).
+
+
+
+    #### **2. Implement "Profit Margin" Logic (00:02:00 - 00:03:00)**
+
+    * **The Logic:** Currently, the system scrapes a price (e.g., 10 SAR) and publishes it at 10 SAR. The client makes zero profit.
+    * **The Requirement:**
+    * Create a configuration (likely in the Database/Admin Panel) to set a **Percentage markup per source website**.
+    * *Example:* Set "App Tools" to +10%, "Electric House" to +15%.
+    * **Formula:** `Database_Price = Scraped_Final_Price + (Percentage)`.
+    * When the "Publish" button is clicked, it must send this calculated price, not the raw scraped price.
+
+
+
+    #### **3. Fix Language & Stock Synchronization (00:03:24 - 00:04:30)**
+
+    * **The Bug (Critical):** The scraper grabs the Arabic version and the English version of a product and uploads them as **two separate products** with separate IDs.
+    * **The Consequence:** If a customer buys the Arabic product, the stock decreases. However, the English product's stock remains full. This leads to inventory errors.
+    * **The Requirement:**
+    * Modify the "Publisher" logic to link these two uploads.
+    * They must be uploaded as **translations of a single product ID** (likely using WPML/Polylang logic via the WooCommerce API).
+    * **Goal:** Shared Stock. Buying one reduces the inventory for both views.
+
+
+
+    #### **4. Fix Category Logic (The "DeepSeek" Issue) (00:04:53 - 00:06:49)**
+
+    * **The Workflow:** Currently, the system scrapes a product, sends the Name/Description to an AI (specifically **DeepSeek**) to map it to the client's existing Category list.
+    * **The Bug:** If DeepSeek returns a category that *doesn't exist* on the client's site (or if it returns the source site's category like "PV Boxes"), the Publisher script **creates a new category** in WordPress.
+    * **The Requirement:**
+    * **Strict Validation:** Before publishing, check if the category exists on "Al Maddah".
+    * **Logic:**
+    * If Match Found  Assign Category.
+    * If No Match  Assign "Uncategorized" or leave empty.
+
+
+    * **Constraint:** The system must **NEVER** create a new category programmatically.
+
+
+
+    #### **5. Scheduling System (00:06:49 - 00:09:14)**
+
+    * **The Logic:** Prices and Stock change constantly. Manual triggering is inefficient.
+    * **The Requirement:**
+    * Build a scheduling interface (using Celery/Cron).
+    * Allow specific intervals **per source site**.
+    * *Example:* "Scrape App Tools every 3 days," "Scrape Site B every month."
+
+
+    * **Scope:** This needs to automate the **Scraping** step. The speaker implies the **Publishing** step should likely be automated/scheduled as well so the whole pipeline runs without human intervention.
+
+
+
+    ---
+
+    ### **Future Work (Mentioned at end)**
+
+    * There is a site called "Electric House" (or similar) that needs a brand new spider built from scratch because the current one is broken/bad.
+
+    ### **How to Use This in Your Proposal**
+
+    Since you now know the internal details (DeepSeek, the Stock/Translation issue), you can sound like an expert.
+
+    **Draft Plan to send to the client:**
+
+    > "I have analyzed the project requirements video and here is my technical plan to execute the 5 tasks:
+    > 1. **Stock Sync:** I will refactor the publisher to upload the English product first, capture the `product_id`, and then upload the Arabic version as a translation linked to that ID. This ensures **inventory is shared** across languages.
+    > 2. **Category Guardrails:** I will implement a validation layer that checks the AI/DeepSeek output against the existing WordPress Term Taxonomy. If the category ID doesn't exist, I will default to 'Uncategorized' rather than creating clutter in your database.
+    > 3. **Pricing Engine:** I will add a transformation step in the pipeline to apply the specific `margin %` stored for each domain before the data hits the database.
+    > 4. **Scheduling:** I will use **Celery Beat** to allow you to set custom CRON intervals (Daily, Weekly, Monthly) for each spider independently.
+    > 
+    > 
+    > I am ready to audit the spiders for the VAT/Final Price issue immediately."
+
+what needs to be done: 
+    Here is your Technical Action Plan followed by a Code Prototype you can include in your bid.Part 1: Your Technical To-Do List (The "Action Plan")This is exactly what you need to do, step-by-step, once hired. You can use this list to structure your proposal.1. The "Final Price" Audit (Scrapy)Task: Identify the CSS/XPath selectors on the "Electric House" and "App Tools" spiders.Action: Change the selector from the main price display to the "Cart Total" or "Checkout Price" element to ensure VAT/Discounts are captured.2. The Dynamic Markup Engine (FastAPI/Postgres)Task: Add a profit_margin column (float) to the SourceSite table in the database.Action: Update the scraper pipeline. Before saving to the DB:final_price = scraped_price * (1 + site_profit_margin)Store this as the "Sale Price."3. The Multilingual Linker (The Hard Part)Task: Stop creating two separate products for English and Arabic.Action: Rewrite the Publisher logic:Publish English Product $\rightarrow$ API returns product_id_123.Publish Arabic Product.In the API payload for Arabic, set translation_of = 123 (or use the specific WPML/Polylang meta key _icl_lang_duplicate_of).Result: Shared stock, one product ID, two views.4. The Category Guardrail (Logic Fix)Task: Prevent DeepSeek/AI from inventing categories.Action:Fetch all existing categories from WooCommerce (GET /products/categories) and cache them in Redis.When DeepSeek suggests a category, check if it exists in that Redis cache.If False: Force category to Uncategorized or Draft. Do not create.5. The Scheduler (Celery Beat)Task: Allow different scrape frequencies per site.Action: Implement PeriodicTasks in Celery. Create a FastAPI endpoint that accepts a CRON schedule (e.g., 0 0 */3 * * for "every 3 days") and dynamically updates the Celery Beat schedule for that specific spider.
